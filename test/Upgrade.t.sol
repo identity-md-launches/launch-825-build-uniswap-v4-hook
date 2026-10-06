@@ -200,10 +200,10 @@ contract UpgradeTest is HookFixture {
     {
         address candidate = useV2 ? address(new PaperHookV2(manager)) : address(new PaperHook(manager));
         bytes memory runtime = candidate.code;
-        // The sole manager immutable occupies bytes [2110, 2142) in the pinned runtime.
+        // The sole manager immutable occupies bytes [2140, 2172) in the pinned runtime.
         // Exercise the entire remaining code, including bytes after the immutable.
         uint256 offset = bound(uint256(offsetSeed), 0, runtime.length - 33);
-        if (offset >= 2110) offset += 32;
+        if (offset >= 2140) offset += 32;
         runtime[offset] ^= bytes1(uint8(bound(uint256(maskSeed), 1, 255)));
         vm.etch(candidate, runtime);
 
@@ -226,7 +226,7 @@ contract UpgradeTest is HookFixture {
         PaperHookV2 candidate = new PaperHookV2(manager);
         bytes memory runtime = address(candidate).code;
         // Keep the actual manager address but set a discarded high bit in its 32-byte word.
-        runtime[2110] = 0x01;
+        runtime[2140] = 0x01;
         vm.etch(address(candidate), runtime);
         ProxyAdmin admin = _admin();
         vm.prank(DEV);

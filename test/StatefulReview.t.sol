@@ -35,6 +35,8 @@ contract ReviewHandler is Test {
     uint256 public swaps;
     uint256 public upgrades;
     uint256 public rejectedCalls;
+    uint256 public cappedPosts;
+    uint256 public capRefusals;
     PoolKey private key;
 
     constructor(PaperHook h, PoolRouter r, Paper p, MockERC20 i, address logic1, address logic2) {
@@ -94,6 +96,32 @@ contract ReviewHandler is Test {
         assertEq(hook.postDraft(text), expectedDrafts + 1);
         ++expectedDrafts;
         expectedDead += quote;
+    }
+
+    function cappedPost(uint8 actorSeed, bytes32 text, uint96 capSeed, bool reject) external {
+        address actor = actors[actorSeed % 3];
+        uint256 quote = hook.postFeeTokens();
+        uint256 balanceBefore = paper.balanceOf(actor);
+        uint256 allowanceBefore = paper.allowance(actor, address(hook));
+        if (reject && quote != 0) {
+            uint256 cap = bound(uint256(capSeed), 0, quote - 1);
+            vm.prank(actor);
+            vm.expectRevert(abi.encodeWithSelector(PaperHook.PostFeeExceedsLimit.selector, quote, cap));
+            hook.postDraft(text, cap);
+            assertEq(paper.balanceOf(actor), balanceBefore);
+            assertEq(paper.balanceOf(hook.DEAD()), expectedDead);
+            assertEq(hook.draftCount(), expectedDrafts);
+            ++capRefusals;
+        } else {
+            uint256 cap = quote + uint256(capSeed);
+            vm.prank(actor);
+            assertEq(hook.postDraft(text, cap), expectedDrafts + 1);
+            assertEq(paper.balanceOf(actor), balanceBefore - quote);
+            ++expectedDrafts;
+            expectedDead += quote;
+            ++cappedPosts;
+        }
+        assertEq(paper.allowance(actor, address(hook)), allowanceBefore, "unlimited approval stays unchanged");
     }
 
     function vote(uint8 actorSeed, uint256 draftSeed, uint96 raw) external {
@@ -169,8 +197,10 @@ contract StatefulReviewTest is HookFixture {
         handler.upgrade(true);
         handler.rejectedVote(0, 1);
         handler.rejectedAdmin(1, 10);
+        handler.cappedPost(1, keccak256("Accepted capped draft"), 1, false);
+        handler.cappedPost(2, keccak256("Refused capped draft"), 1, true);
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](8);
+        bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = ReviewHandler.trade.selector;
         selectors[1] = ReviewHandler.changeSplit.selector;
         selectors[2] = ReviewHandler.configure.selector;
@@ -179,6 +209,7 @@ contract StatefulReviewTest is HookFixture {
         selectors[5] = ReviewHandler.upgrade.selector;
         selectors[6] = ReviewHandler.rejectedVote.selector;
         selectors[7] = ReviewHandler.rejectedAdmin.selector;
+        selectors[8] = ReviewHandler.cappedPost.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
     }
 
@@ -218,6 +249,8 @@ contract StatefulReviewTest is HookFixture {
         assertGe(handler.swaps(), 4);
         assertGe(handler.upgrades(), 1);
         assertGe(handler.rejectedCalls(), 2);
+        assertGe(handler.cappedPosts(), 1);
+        assertGe(handler.capRefusals(), 1);
         _checkSettled();
     }
 }

@@ -108,13 +108,13 @@ contract VotingPropertiesTest is HookFixture {
     function test_existingDraftRemainsVotableWhenLiquidityIsRemoved() public {
         uint256 id = hook.postDraft(0);
         router.liquidity(key, ModifyLiquidityParams(LOWER, UPPER, -LIQUIDITY, 0));
-        vm.expectRevert(PaperHook.PoolUnavailable.selector);
-        hook.postDraft(0);
+        // The launch-price fallback now permits new drafts as well as votes without liquidity.
+        assertEq(hook.postDraft(0, 1 ether), 2);
         vm.expectEmit(true, true, false, true, address(hook));
         emit Burned(id, address(this), 9 ether);
         hook.burn(id, 9 ether);
-        assertEq(hook.draftCount(), 1);
-        assertEq(paper.balanceOf(DEAD), 10 ether);
+        assertEq(hook.draftCount(), 2);
+        assertEq(paper.balanceOf(DEAD), 11 ether);
         _checkSettled();
     }
 

@@ -56,7 +56,7 @@ contract FailureAtomicityTest is HookFixture {
         HostilePaper hostile = HostilePaper(IMD);
         // The token moves funds, then reenters with an invalid post. The hook guard
         // refuses reentry; settlement's false transferFrom response then rolls back it all.
-        hostile.configure(address(hook), abi.encodeCall(PaperHook.postDraft, (bytes32(0))), false, true);
+        hostile.configure(address(hook), abi.encodeWithSignature("postDraft(bytes32)", bytes32(0)), false, true);
         bytes32 beforeState = _snapshot();
         vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, IMD));
         _swap(true, true, 100 ether);
