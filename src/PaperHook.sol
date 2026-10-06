@@ -49,6 +49,7 @@ contract PaperHook is Initializable, IHooks {
         PoolKey key;
         bool poolBound;
         bool entered;
+        uint160 lastPricedSqrtPriceX96;
     }
 
     // keccak256(abi.encode(uint256(keccak256("paper.storage.Hook")) - 1)) & ~bytes32(uint256(255))
@@ -65,6 +66,7 @@ contract PaperHook is Initializable, IHooks {
     error AmountTooLarge();
     error PartialImdSwap();
     error InsufficientFeeBacking();
+    error PostFeeExceedsLimit(uint256 required, uint256 maximum);
 
     event SplitChanged(address ordersWallet, uint256 ordersBps, address devWallet, uint256 devBps);
     event PostFeeUsdChanged(uint256 usd);
@@ -211,7 +213,10 @@ contract PaperHook is Initializable, IHooks {
         HookStorage storage s = _state();
         if (!s.poolBound || s.manager.isUnlocked()) revert PoolUnavailable();
         (uint160 sqrtPrice,,,) = s.manager.getSlot0(s.key.toId());
-        if (sqrtPrice == 0 || s.manager.getLiquidity(s.key.toId()) == 0) revert PoolUnavailable();
+        // Empty ranges can move slot0 without exchanging tokens. Use the launch price or the
+        // last post-swap price observed with active liquidity instead of disabling posting.
+        if (s.manager.getLiquidity(s.key.toId()) == 0) sqrtPrice = s.lastPricedSqrtPriceX96;
+        if (sqrtPrice == 0) revert PoolUnavailable();
         uint256 imdAmount = FullMath.mulDivRoundingUp(s.postFeeUsd, s.imdUnit * 1e18, s.imdUsd);
         bool paperIs0 = Currency.unwrap(s.key.currency0) == s.token;
         if (sqrtPrice <= type(uint128).max) {
@@ -228,8 +233,20 @@ contract PaperHook is Initializable, IHooks {
             : FullMath.mulDivRoundingUp(imdAmount, ratioX128, 1 << 128);
     }
 
+    /// @notice Legacy entry point without slippage protection. Prefer postDraft(textHash, maxTokens).
     function postDraft(bytes32 textHash) external nonReentrant returns (uint256 draftId) {
+        return _postDraft(textHash, type(uint256).max);
+    }
+
+    /// @notice Burns the execution-time quote only if it is within the caller's approved price limit.
+    /// @param maxTokens Maximum paper minor units to burn, independent of any ERC-20 allowance.
+    function postDraft(bytes32 textHash, uint256 maxTokens) external nonReentrant returns (uint256 draftId) {
+        return _postDraft(textHash, maxTokens);
+    }
+
+    function _postDraft(bytes32 textHash, uint256 maxTokens) private returns (uint256 draftId) {
         uint256 amount = postFeeTokens();
+        if (amount > maxTokens) revert PostFeeExceedsLimit(amount, maxTokens);
         draftId = ++_state().draftCount;
         _burnFrom(msg.sender, amount);
         emit DraftPosted(draftId, msg.sender, textHash, amount);
@@ -248,7 +265,11 @@ contract PaperHook is Initializable, IHooks {
         if (paper.balanceOf(DEAD) - beforeBalance != amount) revert InexactTransfer();
     }
 
-    function beforeInitialize(address sender, PoolKey calldata key, uint160) external onlyManager returns (bytes4) {
+    function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
+        external
+        onlyManager
+        returns (bytes4)
+    {
         HookStorage storage s = _state();
         if (s.poolBound || (sender != s.launcher && sender != s.owner)) revert Unauthorized();
         address a = Currency.unwrap(key.currency0);
@@ -259,6 +280,7 @@ contract PaperHook is Initializable, IHooks {
         ) revert WrongPool();
         s.key = key;
         s.poolBound = true;
+        s.lastPricedSqrtPriceX96 = sqrtPriceX96;
         emit PoolBound(key.toId(), s.token);
         return IHooks.beforeInitialize.selector;
     }
@@ -284,6 +306,11 @@ contract PaperHook is Initializable, IHooks {
         returns (bytes4, int128)
     {
         _checkPool(key);
+        HookStorage storage s = _state();
+        if (s.manager.getLiquidity(key.toId()) != 0) {
+            (uint160 sqrtPrice,,,) = s.manager.getSlot0(key.toId());
+            s.lastPricedSqrtPriceX96 = sqrtPrice;
+        }
         int128 imdDelta = Currency.unwrap(key.currency0) == IMD ? delta.amount0() : delta.amount1();
         uint256 actual = _abs(int256(imdDelta));
         if (_imdSpecified(key, params)) {

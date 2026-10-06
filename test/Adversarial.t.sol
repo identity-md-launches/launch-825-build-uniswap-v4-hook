@@ -99,7 +99,7 @@ contract AdversarialTest is HookFixture {
         hook.postDraft(0);
         assertFalse(hostile.reentrySucceeded());
         assertEq(hostile.reentryError(), PaperHook.ReentrantCall.selector);
-        hostile.configure(address(hook), abi.encodeCall(PaperHook.postDraft, (bytes32(0))), false, false);
+        hostile.configure(address(hook), abi.encodeWithSignature("postDraft(bytes32)", bytes32(0)), false, false);
         hook.burn(1, 1 ether);
         assertFalse(hostile.reentrySucceeded());
         assertEq(hostile.reentryError(), PaperHook.ReentrantCall.selector);
@@ -111,7 +111,7 @@ contract AdversarialTest is HookFixture {
         HostilePaper template = new HostilePaper();
         vm.etch(IMD, address(template).code);
         HostilePaper hostile = HostilePaper(IMD);
-        hostile.configure(address(hook), abi.encodeCall(PaperHook.postDraft, (bytes32(0))), false, false);
+        hostile.configure(address(hook), abi.encodeWithSignature("postDraft(bytes32)", bytes32(0)), false, false);
         _swap(true, true, 100 ether);
         assertFalse(hostile.reentrySucceeded());
         assertEq(hostile.reentryError(), PaperHook.ReentrantCall.selector);

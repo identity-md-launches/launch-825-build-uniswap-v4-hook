@@ -54,7 +54,7 @@ contract HookHandler is Test {
 
     function postAndBurn(uint96 rawAmount) external {
         uint256 quoted = hook.postFeeTokens();
-        uint256 id = hook.postDraft(keccak256(abi.encode(rawAmount)));
+        uint256 id = hook.postDraft(keccak256(abi.encode(rawAmount)), quoted);
         uint256 amount = bound(uint256(rawAmount), 0, 1e20);
         hook.burn(id, amount);
         expectedBurn += quoted + amount;

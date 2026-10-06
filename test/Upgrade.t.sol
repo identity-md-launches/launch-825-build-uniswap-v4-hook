@@ -6,6 +6,7 @@ import {PaperHook} from "../src/PaperHook.sol";
 import {PaperHookV2} from "../src/PaperHookV2.sol";
 import {PaperProxy} from "../src/PaperProxy.sol";
 import {PoolManager} from "v4-core/src/PoolManager.sol";
+import {ModifyLiquidityParams} from "v4-core/src/types/PoolOperation.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
@@ -88,6 +89,25 @@ contract UpgradeTest is HookFixture {
         assertEq(bb, 50);
         assertEq(fresh.feeBps(), 200);
         assertEq(fresh.postFeeUsd(), 1);
+    }
+
+    function test_upgradeKeepsFallbackPriceAndCappedPosting() public {
+        _swap(true, true, 100 ether);
+        uint256 lastQuote = hook.postFeeTokens();
+        assertLt(lastQuote, 1 ether);
+        router.liquidity(key, ModifyLiquidityParams(LOWER, UPPER, -LIQUIDITY, 0));
+        assertEq(hook.postFeeTokens(), lastQuote);
+
+        PaperHookV2 v2 = new PaperHookV2(manager);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(v2), "");
+        assertEq(hook.postFeeTokens(), lastQuote);
+        vm.expectRevert(abi.encodeWithSelector(PaperHook.PostFeeExceedsLimit.selector, lastQuote, lastQuote - 1));
+        hook.postDraft(0, lastQuote - 1);
+        assertEq(hook.postDraft(0, lastQuote), 1);
+        assertEq(paper.balanceOf(DEAD), lastQuote);
+        _checkSettled();
     }
 
     function test_hookOwnerAndStrangerCannotUpgrade() public {

@@ -14,9 +14,9 @@ contract PaperProxy is TransparentUpgradeableProxy {
     // These are the complete pinned-solc runtime hashes after zeroing the sole deploymentManager immutable.
     // Canonical V1/V2 deployment and upgrade tests fail if their code or the compiler settings change.
     // No owner can change the hashes, immutable offset, or deployment manager for an existing proxy.
-    bytes32 private constant V1_RUNTIME_HASH = 0x786797241d90a3aa6c31ea4123256416054bd67326ffd3761fbfac7318d8a1f9;
-    bytes32 private constant V2_RUNTIME_HASH = 0x0d435a182959bb223dbd9a229823bcbe984ddb86b3b1dd3c40518654a4d43520;
-    uint256 private constant MANAGER_OFFSET = 2110;
+    bytes32 private constant V1_RUNTIME_HASH = 0x95289d3166cb8a8454664900441f7c2a30d029051c0607ed7001b3e3492ab169;
+    bytes32 private constant V2_RUNTIME_HASH = 0x180ed849a05ea535d8a0ccb749d7dac9b9f01109ed8dab4d8ecf4d36fbe46415;
+    uint256 private constant MANAGER_OFFSET = 2140;
     address private immutable approvedManager;
 
     error UnsupportedImplementation();

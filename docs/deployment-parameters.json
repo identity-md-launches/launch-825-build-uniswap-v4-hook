@@ -41,7 +41,14 @@
     "mode": "owner-set fallback",
     "imdUsdScale": "1000000000000000000",
     "postFeeUsdInitial": 1,
-    "postFeeUsdUnit": "whole USD"
+    "postFeeUsdUnit": "whole USD",
+    "emptyLiquidityPrice": "Launch sqrtPriceX96, replaced by the latest post-swap price with active liquidity"
   },
-  "status": "Review parameters only; no deployment or broadcast performed"
+  "posting": {
+    "recommendedSignature": "postDraft(bytes32,uint256)",
+    "maxTokensUnit": "paper minor units",
+    "legacySignature": "postDraft(bytes32)",
+    "legacyRisk": "No caller price cap; migrate integrations even if their burn allowance is unlimited"
+  },
+  "status": "Review parameters only; launch blocked until the manifest/deployer supports the initialized proxy and admission explicitly permits DELEGATECALL. No deployment or broadcast performed."
 }

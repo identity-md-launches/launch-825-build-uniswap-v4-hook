@@ -131,12 +131,12 @@ contract VotingTest is HookFixture {
         assertLt(hook.postFeeTokens(), beforeQuote);
     }
 
-    function test_quoteRejectsUnseededPool() public {
+    function test_quoteUsesLaunchPriceBeforeSeeding() public {
         PaperHook unseeded = _deploy(address(implementation), Q96);
-        vm.expectRevert(PaperHook.PoolUnavailable.selector);
-        unseeded.postFeeTokens();
-        vm.expectRevert(PaperHook.PoolUnavailable.selector);
-        unseeded.postDraft(0);
+        assertEq(unseeded.postFeeTokens(), 1 ether);
+        paper.approve(address(unseeded), 1 ether);
+        assertEq(unseeded.postDraft(0), 1);
+        assertEq(paper.balanceOf(DEAD), 1 ether);
     }
 
     function test_roundingUpPreventsFreeDustPost() public {

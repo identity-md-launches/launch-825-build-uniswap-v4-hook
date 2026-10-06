@@ -19,8 +19,9 @@ contract UnlockProbe is IUnlockCallback {
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         require(msg.sender == address(manager), "Only manager");
         (PaperHook hook, bool post) = abi.decode(data, (PaperHook, bool));
-        bytes memory callData =
-            post ? abi.encodeCall(PaperHook.postDraft, (bytes32(0))) : abi.encodeCall(PaperHook.postFeeTokens, ());
+        bytes memory callData = post
+            ? abi.encodeWithSignature("postDraft(bytes32)", bytes32(0))
+            : abi.encodeCall(PaperHook.postFeeTokens, ());
         (bool ok, bytes memory result) = address(hook).call(callData);
         return abi.encode(ok, result);
     }
