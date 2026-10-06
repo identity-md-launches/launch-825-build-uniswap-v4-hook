@@ -193,4 +193,61 @@ contract UpgradeTest is HookFixture {
         admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(replacement), "");
         assertEq(address(uint160(uint256(vm.load(address(hook), IMPL_SLOT)))), address(implementation));
     }
+
+    /// forge-config: default.fuzz.runs = 1000
+    function testFuzz_runtimeWhitelistRejectsChangesBeforeDelegation(uint16 offsetSeed, uint8 maskSeed, bool useV2)
+        public
+    {
+        address candidate = useV2 ? address(new PaperHookV2(manager)) : address(new PaperHook(manager));
+        bytes memory runtime = candidate.code;
+        // The sole manager immutable occupies bytes [2110, 2142) in the pinned runtime.
+        // Exercise the entire remaining code, including bytes after the immutable.
+        uint256 offset = bound(uint256(offsetSeed), 0, runtime.length - 33);
+        if (offset >= 2110) offset += 32;
+        runtime[offset] ^= bytes1(uint8(bound(uint256(maskSeed), 1, 255)));
+        vm.etch(candidate, runtime);
+
+        // A payload that would otherwise change application state must never be delegated.
+        bytes memory payload = abi.encodeCall(PaperHook.setPostFeeUsd, (99));
+        ProxyAdmin admin = _admin();
+        bytes32 adminBefore = vm.load(address(hook), ADMIN_SLOT);
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), candidate, payload);
+        assertEq(vm.load(address(hook), IMPL_SLOT), bytes32(uint256(uint160(address(implementation)))));
+        assertEq(vm.load(address(hook), ADMIN_SLOT), adminBefore);
+        assertEq(hook.postFeeUsd(), 1);
+
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        new PaperProxy(candidate, abi.encodeCall(PaperHook.initialize, (address(paper), address(this), 1 ether)));
+    }
+
+    function test_managerNormalizationRejectsDirtyAddressPadding() public {
+        PaperHookV2 candidate = new PaperHookV2(manager);
+        bytes memory runtime = address(candidate).code;
+        // Keep the actual manager address but set a discarded high bit in its 32-byte word.
+        runtime[2110] = 0x01;
+        vm.etch(address(candidate), runtime);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.ImplementationManagerMismatch.selector);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(candidate), "");
+        vm.expectRevert(PaperProxy.ImplementationManagerMismatch.selector);
+        new PaperProxy(
+            address(candidate), abi.encodeCall(PaperHook.initialize, (address(paper), address(this), 1 ether))
+        );
+        assertEq(vm.load(address(hook), IMPL_SLOT), bytes32(uint256(uint160(address(implementation)))));
+        assertEq(address(hook.poolManager()), address(manager));
+    }
+
+    function test_whitelistRejectsAppendedRuntimeEvenWhenBehaviorIsUnchanged() public {
+        PaperHookV2 candidate = new PaperHookV2(manager);
+        vm.etch(address(candidate), abi.encodePacked(address(candidate).code, hex"00"));
+        assertEq(candidate.feeBps(), 200);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(candidate), "");
+        assertEq(vm.load(address(hook), IMPL_SLOT), bytes32(uint256(uint160(address(implementation)))));
+    }
 }
