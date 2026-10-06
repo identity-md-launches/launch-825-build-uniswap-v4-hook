@@ -1,0 +1,36 @@
+{
+  "kind": "univ4_hook",
+  "hook": {
+    "contract": "PaperHook",
+    "constructorArgs": ["$poolManager"],
+    "permissions": [
+      "beforeInitialize",
+      "afterInitialize",
+      "beforeAddLiquidity",
+      "afterAddLiquidity",
+      "beforeRemoveLiquidity",
+      "afterRemoveLiquidity",
+      "beforeSwap",
+      "afterSwap",
+      "beforeDonate",
+      "afterDonate",
+      "beforeSwapReturnDelta",
+      "afterSwapReturnDelta",
+      "afterAddLiquidityReturnDelta",
+      "afterRemoveLiquidityReturnDelta"
+    ]
+  },
+  "token": {
+    "contract": "Paper",
+    "name": "paper",
+    "symbol": "paper",
+    "decimals": 18
+  },
+  "pool": {
+    "pairedCurrency": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "initialPrice": "79228162514264337593543950336"
+  },
+  "notes": "BLOCKING integration findings: hook.contract identifies the actual V1 implementation PaperHook, whose sole constructor argument is IPoolManager. Its constructor disables initialization; deploying it alone cannot initialize or operate the pool. The functional hook is PaperProxy(implementation, initialization), a TransparentUpgradeableProxy deployed with initialize($token, hookOwner, imdUsdWad) encoded as initialization bytes. This schema does not express that implementation/proxy deployment sequence or initializer inputs; the deployment integration must be reviewed before launch. The protected Hook test also rejects executable DELEGATECALL, which PaperProxy requires. These conflicts are unresolved; this manifest does not establish launch readiness. PaperProxy's immutable runtime allowlist admits only delivered PaperHook/PaperHookV2 with the same manager, so arbitrary later implementations cannot use the reserved callbacks.\n\nThe proxy must be CREATE2-mined with address & 0x3fff == 0x3fff. All 14 permissions are true in getHookPermissions. beforeInitialize binds one sorted Paper/IMD pool, accepts LP fees 500, 3000 or 10000 and positive tick spacing, and permits initialization only by the recorded launcher or application owner. All callbacks require PoolManager; unused callbacks validate the pool and return selectors with zero deltas where applicable. PaperDeployment provides atomic proxy deployment and pool initialization. Paper has no constructor arguments.\n\nPool fee 3000 and tick spacing 60 match the repository fixture. initialPrice is the fixture's 2^96, giving currency1/currency0 = 1 in raw units; this is an explicit initial-price assumption, not a verified market quote. It means equal whole-token prices only if both currencies have 18 decimals. The target is paper/IMD on Ethereum mainnet.\n\nThe hook charges a constant 200 bps of the gross IMD leg in both swap directions via beforeSwap/afterSwap return deltas, separate from the LP fee. V1 defaults are 50 bps to orders 0x721F8232e19c92516eB753FEF53d8A33a3637989 and 150 bps to dev 0xb59eac9882Ba98f4170d99D5F402C3EDb6D50D75. Owner-only setSplit requires their sum to remain 200. Payments use PoolManager.take in the same swap without accumulating fees or claims. PaperSwapRouter prepays input for fresh paper-only pools; routers settling after the swap require existing IMD backing. IMD-specified partial fills revert.\n\nProxyAdmin initial owner is the fixed dev address, not a constructor argument. Mutable hook state uses ERC-7201 storage. PaperHookV2 reverses defaults to 150/50 only for newly initialized proxies; upgrades preserve existing state and split.\n\npostFeeUsd starts at 1 whole USD. Voting quotes use current pool sqrtPriceX96 and positive owner-set imdUsd scaled by 1e18; no chain-readable USD source is configured. postDraft and burn transfer paper to 0x000000000000000000000000000000000000dEaD and emit DraftPosted/Burned; both contribute actual burned amounts to off-chain votes. Rounds, quorum and winners are not stored. Spot pricing is manipulable and the USD setting can become stale. Local unit, fuzz, upgrade and stateful tests and docs/ADVERSARIAL_REVIEW.md are included; they do not establish mainnet fork verification or independent admission."
+}
