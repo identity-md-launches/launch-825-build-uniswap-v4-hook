@@ -7,15 +7,42 @@ import {PaperSwapRouter} from "../src/PaperSwapRouter.sol";
 import {PoolRouter} from "./mocks/PoolRouter.sol";
 import {HostilePaper} from "./mocks/HostilePaper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {PoolManager} from "v4-core/src/PoolManager.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
+import {CustomRevert} from "v4-core/src/libraries/CustomRevert.sol";
 import {SwapParams, ModifyLiquidityParams} from "v4-core/src/types/PoolOperation.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
 import {TransientStateLibrary} from "v4-core/src/libraries/TransientStateLibrary.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+
+/// @notice Fail a selected transfer stage while allowing the router's initial pull to succeed.
+contract RouterTransferFailure is ERC20 {
+    address private affectedRecipient;
+    bool private deliverShort;
+
+    error TransferRefused();
+
+    constructor() ERC20("Transfer probe", "PROBE") {}
+
+    function configure(address recipient, bool shortTransfer) external {
+        affectedRecipient = recipient;
+        deliverShort = shortTransfer;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (to == affectedRecipient && value != 0) {
+            if (!deliverShort) revert TransferRefused();
+            super._update(from, to, value - 1);
+            super._update(from, address(0), 1);
+        } else {
+            super._update(from, to, value);
+        }
+    }
+}
 
 contract RouterTest is HookFixture {
     using BalanceDeltaLibrary for BalanceDelta;
@@ -261,6 +288,69 @@ contract RouterTest is HookFixture {
         assertEq(paper.balanceOf(address(swapRouter)), 11 ether);
         assertEq(paper.balanceOf(RECIPIENT), 100 ether);
         _checkSettled();
+    }
+
+    function _failureSnapshot() private view returns (bytes32) {
+        (uint160 price, int24 tick, uint24 protocolFee, uint24 lpFee) =
+            IPoolManager(address(manager)).getSlot0(key.toId());
+        bytes memory state = abi.encode(price, tick, protocolFee, lpFee, paper.totalSupply(), imd.totalSupply());
+        address[7] memory accounts =
+            [address(this), RECIPIENT, address(manager), address(swapRouter), address(hook), ORDERS, DEV];
+        for (uint256 i; i < accounts.length; ++i) {
+            state = abi.encode(state, paper.balanceOf(accounts[i]), imd.balanceOf(accounts[i]));
+        }
+        return keccak256(
+            abi.encode(
+                state,
+                paper.allowance(address(this), address(swapRouter)),
+                imd.allowance(address(this), address(swapRouter))
+            )
+        );
+    }
+
+    function test_shortManagerSettlementRollsBackSuccessfulInitialPull() public {
+        RouterTransferFailure template = new RouterTransferFailure();
+        vm.etch(IMD, address(template).code);
+        RouterTransferFailure(IMD).configure(address(manager), true);
+        imd.approve(address(swapRouter), 200 ether);
+        bytes32 beforeState = _failureSnapshot();
+        vm.expectRevert(PaperSwapRouter.InexactTransfer.selector);
+        swapRouter.swap(_params(true, false, 100 ether), 200 ether, 100 ether, RECIPIENT, block.timestamp);
+        assertEq(_failureSnapshot(), beforeState);
+        _checkRouterSettled();
+        RouterTransferFailure(IMD).configure(address(0), false);
+        _verifySwap(true, false, 100 ether);
+    }
+
+    function _checkLateTransferFailure(bool failRefund) private {
+        address failingToken = failRefund ? IMD : address(paper);
+        RouterTransferFailure template = new RouterTransferFailure();
+        vm.etch(failingToken, address(template).code);
+        RouterTransferFailure(failingToken).configure(failRefund ? address(this) : RECIPIENT, false);
+        imd.approve(address(swapRouter), 200 ether);
+        bytes32 beforeState = _failureSnapshot();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CustomRevert.WrappedError.selector,
+                failingToken,
+                IERC20.transfer.selector,
+                abi.encodeWithSelector(RouterTransferFailure.TransferRefused.selector),
+                abi.encodeWithSelector(CurrencyLibrary.ERC20TransferFailed.selector)
+            )
+        );
+        swapRouter.swap(_params(true, false, 100 ether), 200 ether, 100 ether, RECIPIENT, block.timestamp);
+        assertEq(_failureSnapshot(), beforeState, "late failure must undo prepayment, fees, refund and price changes");
+        _checkRouterSettled();
+        RouterTransferFailure(failingToken).configure(address(0), false);
+        _verifySwap(true, false, 100 ether);
+    }
+
+    function test_refusedRefundRollsBackSwapAndAllowsRetry() public {
+        _checkLateTransferFailure(true);
+    }
+
+    function test_refusedOutputRollsBackAlreadyPaidRefundAndAllowsRetry() public {
+        _checkLateTransferFailure(false);
     }
 }
 
