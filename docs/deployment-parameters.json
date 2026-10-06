@@ -1,0 +1,40 @@
+{
+  "chainId": 1,
+  "token": {
+    "contract": "src/Paper.sol:Paper",
+    "constructorArguments": [],
+    "name": "paper",
+    "symbol": "paper",
+    "decimals": 18,
+    "supply": "1000000000000000000000000000"
+  },
+  "implementation": {
+    "contract": "src/PaperHook.sol:PaperHook",
+    "constructorArguments": ["$poolManager"]
+  },
+  "proxy": {
+    "contract": "src/PaperProxy.sol:PaperProxy",
+    "constructorArguments": ["$implementation", "$encodedInitialization"],
+    "hookFlags": 16383,
+    "proxyAdminInitialOwner": "0xb59eac9882Ba98f4170d99D5F402C3EDb6D50D75",
+    "initialization": {
+      "signature": "initialize(address,address,uint256)",
+      "arguments": ["$token", "$hookOwner", "$reviewedImdUsdWad"]
+    }
+  },
+  "pool": {
+    "pair": "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "sqrtPriceX96": "$reviewedSqrtPriceX96",
+    "poolBps": 8000,
+    "remainderTo": "0xb59eac9882Ba98f4170d99D5F402C3EDb6D50D75"
+  },
+  "oracle": {
+    "mode": "owner-set fallback",
+    "imdUsdScale": "1000000000000000000",
+    "postFeeUsdInitial": 1,
+    "postFeeUsdUnit": "whole USD"
+  },
+  "status": "Review parameters only; no deployment or broadcast performed"
+}
