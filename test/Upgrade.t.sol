@@ -4,9 +4,21 @@ pragma solidity 0.8.26;
 import {HookFixture} from "./HookFixture.sol";
 import {PaperHook} from "../src/PaperHook.sol";
 import {PaperHookV2} from "../src/PaperHookV2.sol";
+import {PaperProxy} from "../src/PaperProxy.sol";
+import {PoolManager} from "v4-core/src/PoolManager.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+
+contract CounterfeitImplementation {
+    function feeBps() external pure returns (uint256) {
+        return 200;
+    }
+
+    function initialize(address, address, uint256) external pure {
+        revert("Unreviewed initialization executed");
+    }
+}
 
 contract UpgradeTest is HookFixture {
     bytes32 private constant ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
@@ -113,5 +125,52 @@ contract UpgradeTest is HookFixture {
         vm.prank(address(_admin()));
         vm.expectRevert();
         hook.feeBps();
+    }
+
+    function test_upgradeRejectsCounterfeitFeeGetterBeforeInitialization() public {
+        CounterfeitImplementation counterfeit = new CounterfeitImplementation();
+        assertEq(counterfeit.feeBps(), 200);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        admin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(hook)),
+            address(counterfeit),
+            abi.encodeCall(PaperHook.initialize, (address(paper), DEV, 1 ether))
+        );
+        assertEq(address(uint160(uint256(vm.load(address(hook), IMPL_SLOT)))), address(implementation));
+        _swap(true, true, 100 ether);
+        assertEq(imd.balanceOf(ORDERS) + imd.balanceOf(DEV), 2 ether);
+    }
+
+    function test_constructorRejectsCounterfeitBeforeInitialization() public {
+        CounterfeitImplementation counterfeit = new CounterfeitImplementation();
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        new PaperProxy(
+            address(counterfeit), abi.encodeCall(PaperHook.initialize, (address(paper), address(this), 1 ether))
+        );
+    }
+
+    function test_upgradeRejectsCanonicalImplementationForAnotherManager() public {
+        PoolManager anotherManager = new PoolManager(address(this));
+        PaperHookV2 replacement = new PaperHookV2(anotherManager);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.ImplementationManagerMismatch.selector);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(replacement), "");
+        assertEq(address(uint160(uint256(vm.load(address(hook), IMPL_SLOT)))), address(implementation));
+    }
+
+    function test_upgradeRejectsModifiedCanonicalRuntime() public {
+        PaperHookV2 replacement = new PaperHookV2(manager);
+        bytes memory alteredCode = address(replacement).code;
+        // Change executable code while preserving the manager immutable and deployment address.
+        alteredCode[0] = bytes1(uint8(alteredCode[0]) ^ 1);
+        vm.etch(address(replacement), alteredCode);
+        ProxyAdmin admin = _admin();
+        vm.prank(DEV);
+        vm.expectRevert(PaperProxy.UnsupportedImplementation.selector);
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(hook)), address(replacement), "");
+        assertEq(address(uint160(uint256(vm.load(address(hook), IMPL_SLOT)))), address(implementation));
     }
 }

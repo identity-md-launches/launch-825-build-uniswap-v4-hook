@@ -17,6 +17,7 @@
     "constructorArguments": ["$implementation", "$encodedInitialization"],
     "hookFlags": 16383,
     "proxyAdminInitialOwner": "0xb59eac9882Ba98f4170d99D5F402C3EDb6D50D75",
+    "upgradePolicy": "Immutable runtime allowlist: delivered V1/V2 only, same constructor manager",
     "initialization": {
       "signature": "initialize(address,address,uint256)",
       "arguments": ["$token", "$hookOwner", "$reviewedImdUsdWad"]
@@ -29,6 +30,12 @@
     "sqrtPriceX96": "$reviewedSqrtPriceX96",
     "poolBps": 8000,
     "remainderTo": "0xb59eac9882Ba98f4170d99D5F402C3EDb6D50D75"
+  },
+  "swapRouter": {
+    "contract": "src/PaperSwapRouter.sol:PaperSwapRouter",
+    "constructorArguments": ["$initializedHook"],
+    "launchRequirement": "Use this input-prepaying router for paper-only liquidity; settle-after routers require prior IMD backing",
+    "userParameters": ["params", "maxInputIncludingFee", "minOutputAfterFee", "recipient", "deadline"]
   },
   "oracle": {
     "mode": "owner-set fallback",
