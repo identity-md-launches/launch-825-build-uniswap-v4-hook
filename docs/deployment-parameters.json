@@ -34,7 +34,7 @@
   "swapRouter": {
     "contract": "src/PaperSwapRouter.sol:PaperSwapRouter",
     "constructorArguments": ["$initializedHook"],
-    "launchRequirement": "Use this input-prepaying router for paper-only liquidity; settle-after routers require prior IMD backing",
+    "launchRequirement": "Deploy and integrate this input-prepaying router before opening trading whenever prior IMD backing is insufficient, including paper-only liquidity. Settle-after routers depend on the shared manager's changing IMD balance; historical backing does not guarantee availability. Same-swap payouts remain mandatory; there is no deferred claim fallback.",
     "userParameters": ["params", "maxInputIncludingFee", "minOutputAfterFee", "recipient", "deadline"]
   },
   "oracle": {
@@ -48,7 +48,7 @@
     "recommendedSignature": "postDraft(bytes32,uint256)",
     "maxTokensUnit": "paper minor units",
     "legacySignature": "postDraft(bytes32)",
-    "legacyRisk": "No caller price cap; migrate integrations even if their burn allowance is unlimited"
+    "legacyRisk": "No caller price cap; migrate integrations even if their burn allowance is unlimited. A manipulated quote can persist after the attacker removes dust liquidity because the empty-liquidity fallback retains the last active price."
   },
   "status": "Review parameters only; launch blocked until the manifest/deployer supports the initialized proxy and admission explicitly permits DELEGATECALL. No deployment or broadcast performed."
 }

@@ -172,6 +172,51 @@ contract VotingProtectionTest is HookFixture {
         _checkSettled();
     }
 
+    function test_savedManipulatedPriceStillRequiresCallerCapAfterDustRemoval() public {
+        _paperOnlyPool();
+        _buyWithPrepayment(100 ether);
+        uint256 displayedQuote = hook.postFeeTokens();
+        address victim = address(0xBEEF);
+        paper.transfer(victim, 2_000_000 ether);
+        vm.prank(victim);
+        paper.approve(address(hook), type(uint256).max);
+
+        bool paperIs0 = Currency.unwrap(key.currency0) == address(paper);
+        int24 lower = paperIs0 ? int24(-138180) : int24(138120);
+        int24 upper = paperIs0 ? int24(-138120) : int24(138180);
+        router.liquidity(key, ModifyLiquidityParams(lower, upper, 1e6, 0));
+        router.swap(
+            key,
+            SwapParams(paperIs0, -int256(1e24), TickMath.getSqrtPriceAtTick(paperIs0 ? int24(-138150) : int24(138150)))
+        );
+        uint256 poisonedQuote = hook.postFeeTokens();
+        assertGt(poisonedQuote, displayedQuote * 900_000);
+        assertGt(IPoolManager(address(manager)).getLiquidity(key.toId()), 0);
+        router.liquidity(key, ModifyLiquidityParams(lower, upper, -int256(1e6), 0));
+        assertEq(IPoolManager(address(manager)).getLiquidity(key.toId()), 0);
+        assertEq(hook.postFeeTokens(), poisonedQuote);
+
+        vm.recordLogs();
+        vm.prank(victim);
+        vm.expectRevert(abi.encodeWithSelector(PaperHook.PostFeeExceedsLimit.selector, poisonedQuote, displayedQuote));
+        hook.postDraft(keccak256("Pending draft"), displayedQuote);
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(paper.balanceOf(victim), 2_000_000 ether);
+        assertEq(paper.balanceOf(DEAD), 0);
+        assertEq(hook.draftCount(), 0);
+
+        // The required legacy selector has no cap, including when it reads a saved price.
+        vm.expectEmit(true, true, false, true, address(hook));
+        emit DraftPosted(1, victim, keccak256("Legacy draft"), poisonedQuote);
+        vm.prank(victim);
+        assertEq(hook.postDraft(keccak256("Legacy draft")), 1);
+        assertEq(paper.balanceOf(victim), 2_000_000 ether - poisonedQuote);
+        assertEq(paper.balanceOf(DEAD), poisonedQuote);
+        _buyWithPrepayment(10 ether);
+        assertLt(hook.postFeeTokens(), displayedQuote * 2);
+        _checkSettled();
+    }
+
     function test_cappedPostRejectsReentrantPost() public {
         HostilePaper template = new HostilePaper();
         vm.etch(address(paper), address(template).code);
